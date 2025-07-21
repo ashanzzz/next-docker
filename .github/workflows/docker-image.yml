@@ -1,0 +1,123 @@
+# GitHub Actions 工作流：仅在官方发布 **新版本** 时构建并发布 Nextcloud “full + FPM” 镜像。
+# - 每周检查一次（周一 03:00 Europe/Helsinki / 00:00 UTC），也支持手动触发
+# - 通过 GitHub Releases 获取最新稳定版本号（vXX.Y.Z → XX.Y.Z）
+# - 若版本号与上次记录不同则构建，否则跳过
+# - 构建上下文使用仓库中的 `.examples/dockerfiles/full/fpm`，Dockerfile 以
+#   `FROM nextcloud:fpm` 为基础，supervisord.conf 已包含在同目录
+# - 镜像推送至 GHCR（可改 Docker Hub），标签保持与官方一致，如 29.0.1
+# - 构建成功后写入 `.last_version` 并自动提交，确保版本同步
+
+name: 构建 Nextcloud Full‑FPM
+
+# ─── 触发器 ─────────────────────────────────────────────────────────────
+on:
+  schedule:
+    # 每周一 00:00 UTC（赫尔辛基时区 +3 → 03:00）
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+# ─── 全局变量 ───────────────────────────────────────────────────────────
+# 如需推送到 Docker Hub，请修改 IMAGE_NAME 并在下方登录步骤中调整
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/nextcloud-full-fpm
+
+# ─── Job 1：检查是否有新版本 ────────────────────────────────────────────
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+      latest_version: ${{ steps.decide.outputs.latest_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ① 调 GitHub API 获取最新 Release Tag，例如 v29.0.1
+      - name: 获取官方最新版本
+        id: upstream
+        run: |
+          LATEST_TAG=$(curl -fsSL \
+            https://api.github.com/repos/nextcloud/server/releases/latest | \
+            jq -r '.tag_name')
+          # 去掉前缀 v → 29.0.1
+          LATEST_VERSION=${LATEST_TAG#v}
+          echo "latest_version=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
+
+      # ② 读取上次构建时记录的版本号
+      - name: 读取历史版本
+        id: current
+        run: |
+          if [[ -f .last_version ]]; then
+            echo "current_version=$(cat .last_version)" >> "$GITHUB_OUTPUT"
+          else
+            echo "current_version=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ③ 比较版本号，决定是否继续
+      - name: 判断是否需构建
+        id: decide
+        run: |
+          if [[ "${{ steps.upstream.outputs.latest_version }}" != "${{ steps.current.outputs.current_version }}" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "latest_version=${{ steps.upstream.outputs.latest_version }}" >> "$GITHUB_OUTPUT"
+
+# ─── Job 2：构建并推送镜像（仅当需构建时运行） ──────────────────────────
+  build:
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许提交 .last_version
+      packages: write   # 允许推送 GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 可选：开启 QEMU 以支持多架构
+      - uses: docker/setup-qemu-action@v3
+
+      # 初始化 Buildx
+      - uses: docker/setup-buildx-action@v3
+
+      # GHCR 登录（默认，通过 GITHUB_TOKEN）
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 如需推送 Docker Hub，请改用以下步骤，并在仓库 Secrets 中配置凭据
+      # - uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKERHUB_USER }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ④ 构建并推送镜像
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .examples/dockerfiles/full/fpm        # Dockerfile 与 supervisord.conf 所在目录
+          file: .examples/dockerfiles/full/fpm/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ needs.check.outputs.latest_version }}
+            ${{ env.IMAGE_NAME }}:latest
+          # 传递版本号供 Dockerfile（若已修改为 ARG NEXTCLOUD_VERSION）使用
+          build-args: |
+            NEXTCLOUD_VERSION=${{ needs.check.outputs.latest_version }}
+
+      # ⑤ 写入新版本文件，供下次比较
+      - name: 更新版本缓存
+        run: echo "${{ needs.check.outputs.latest_version }}" > .last_version
+
+      # ⑥ 自动提交 .last_version 变更（可追溯）
+      - name: Git 自动提交版本变更
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: build Nextcloud ${{ needs.check.outputs.latest_version }}"
+
+      # ⑦ 控制台输出
+      - name: 输出结果
+        run: echo "✅ 已构建 Nextcloud Full‑FPM v${{ needs.check.outputs.latest_version }}"
