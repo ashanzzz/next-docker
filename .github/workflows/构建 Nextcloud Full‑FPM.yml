@@ -13,9 +13,9 @@ on:
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/nextcloud-full-fpm
-  DOCKERFILE_PATH: ${{ github.workspace }}/next-docker/.examples/dockerfiles/full/fpm/Dockerfile
-  SUPERVISORD_CONF_PATH: ${{ github.workspace }}/next-docker/.examples/dockerfiles/full/fpm/supervisord.conf
-  WORKING_DIR: next-docker/.examples/dockerfiles/full/fpm
+  DOCKERFILE_PATH: ${{ github.workspace }}/.examples/dockerfiles/full/fpm/Dockerfile
+  SUPERVISORD_CONF_PATH: ${{ github.workspace }}/.examples/dockerfiles/full/fpm/supervisord.conf
+  WORKING_DIR: .examples/dockerfiles/full/fpm
 
 jobs:
   check:
@@ -104,6 +104,7 @@ jobs:
           else
             echo "current_version=none" >> "$GITHUB_OUTPUT"
           fi
+        working-directory: ${{ github.workspace }}
 
       - name: 判断是否需要构建
         id: decide
@@ -138,7 +139,7 @@ jobs:
       - name: 构建并推送镜像
         uses: docker/build-push-action@v5
         with:
-          context: ${{ github.workspace }}/next-docker/.examples/dockerfiles/full/fpm
+          context: ${{ github.workspace }}/.examples/dockerfiles/full/fpm
           file: ${{ env.DOCKERFILE_PATH }}
           push: true
           tags: |
