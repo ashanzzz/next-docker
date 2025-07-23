@@ -1,11 +1,3 @@
-# GitHub Actions 工作流：仅在官方发布新版本时构建并发布 Nextcloud Full-FPM 镜像
-# - 每周定时检查一次（周一 03:00 Europe/Helsinki / 00:00 UTC），亦可手动触发
-# - 通过多种途径获取 Nextcloud 最新版本号（GitHub Releases → Docker Hub → 容器）
-# - 若版本号与上次记录不同则构建并推送镜像，否则跳过
-# - 构建上下文为仓库 `.examples/dockerfiles/full/fpm`，基础镜像 `nextcloud:fpm`
-# - 镜像推送至 GHCR（默认，可改为 Docker Hub），标签与官方版本号一致（如 29.0.1）
-# - 构建成功后更新 `.last_version` 文件并自动提交，确保版本记录同步
-
 name: 构建 Nextcloud Full‑FPM
 
 on:
@@ -114,8 +106,8 @@ jobs:
       - name: Build & Push
         uses: docker/build-push-action@v5
         with:
-          context: .examples/dockerfiles/full/fpm        # Dockerfile 所在目录
-          file: .examples/dockerfiles/full/fpm/Dockerfile
+          context: next-docker/.examples/dockerfiles/full/fpm  # Dockerfile 所在目录
+          file: next-docker/.examples/dockerfiles/full/fpm/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ needs.check.outputs.latest_version }}
@@ -133,6 +125,18 @@ jobs:
         with:
           commit_message: "chore: build Nextcloud ${{ needs.check.outputs.latest_version }}"
 
-      # ⑦ 控制台输出构建结果
+      # ⑦ 输出 supervisord.conf 文件的前10行
+      - name: 展示 supervisord.conf 的前10行
+        run: |
+          echo "展示 supervisord.conf 的前10行："
+          head -n 10 next-docker/.examples/dockerfiles/full/fpm/supervisord.conf
+
+      # ⑧ 输出 Dockerfile 的前10行
+      - name: 展示 Dockerfile 的前10行
+        run: |
+          echo "展示 Dockerfile 的前10行："
+          head -n 10 next-docker/.examples/dockerfiles/full/fpm/Dockerfile
+
+      # ⑨ 控制台输出构建结果
       - name: 输出结果
         run: echo "✅ 已构建 Nextcloud Full-FPM v${{ needs.check.outputs.latest_version }}"
