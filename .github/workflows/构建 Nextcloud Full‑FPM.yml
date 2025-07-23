@@ -1,32 +1,20 @@
-# GitHub Actions 工作流：构建并发布 Nextcloud Full-FPM 镜像
-# - 每周定时检查一次（周一 03:00 Europe/Helsinki / 00:00 UTC），亦可手动触发
-# - 通过多种途径获取 Nextcloud 最新版本号（GitHub Releases → Docker Hub → 容器）
-# - 若版本号与上次记录不同或用户选择强制覆盖，则构建并推送镜像
-# - 构建上下文为 next-docker/.examples/dockerfiles/full/fpm，基础镜像 nextcloud:fpm
-# - 动态加载 supervisord.conf 和 Dockerfile 文件进行构建
-# - 镜像推送至 GHCR（默认，可改为 Docker Hub），标签与官方版本号一致
-# - 构建成功后更新 .last_version 文件并自动提交
-
 name: 构建 Nextcloud Full‑FPM
 
 on:
   schedule:
-    # 每周一 00:00 UTC（赫尔辛基时间 03:00）
     - cron: "0 0 * * 1"
   workflow_dispatch:
     inputs:
       force_build:
-        description: '是否强制构建并覆盖已有版本（true/false）'
-        required: true
+        description: '是否覆盖已有同版本镜像（勾选后将强制构建并覆盖，默认为否）'
+        required: false
         default: 'false'
         type: boolean
 
 env:
-  # 镜像名称前缀（若需推送到 Docker Hub，可改为你的 Docker Hub 用户名/仓库，例如：yourusername/nextcloud-full-fpm）
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/nextcloud-full-fpm
-  # 文件路径（确保这些路径与你的仓库结构一致）
-  DOCKERFILE_PATH: next-docker/.examples/dockerfiles/full/fpm/Dockerfile
-  SUPERVISORD_CONF_PATH: next-docker/.examples/dockerfiles/full/fpm/supervisord.conf
+  DOCKERFILE_PATH: next-docker/.examples/dockerfiles/full/fpm/Dockerfile  # 根据实际情况调整
+  SUPERVISORD_CONF_PATH: next-docker/.examples/dockerfiles/full/fpm/supervisord.conf  # 根据实际情况调整
 
 jobs:
   check:
@@ -36,23 +24,27 @@ jobs:
       latest_version: ${{ steps.decide.outputs.latest_version }}
     steps:
       - uses: actions/checkout@v4
-        # 拉取仓库代码，以便读取 supervisord.conf 和 Dockerfile 文件
 
-      # 展示 Dockerfile 前10行，便于确认文件内容
+      # 调试：列出目录结构
+      - name: 列出目录结构
+        run: |
+          echo "当前工作目录："
+          pwd
+          echo "列出 next-docker/.examples/dockerfiles/full/fpm 下的文件："
+          ls -la next-docker/.examples/dockerfiles/full/fpm || echo "目录不存在"
+
       - name: 展示 Dockerfile 前10行
         run: |
           echo "以下是 Dockerfile 的前10行内容："
           head -n 10 ${{ env.DOCKERFILE_PATH }}
           echo "-------------------------------------"
 
-      # 展示 supervisord.conf 前10行，便于确认文件内容
       - name: 展示 supervisord.conf 前10行
         run: |
           echo "以下是 supervisord.conf 的前10行内容："
           head -n 10 ${{ env.SUPERVISORD_CONF_PATH }}
           echo "-------------------------------------"
 
-      # 获取 Nextcloud 最新版本号（多渠道：GitHub Releases → Docker Hub → 容器）
       - name: 获取 Nextcloud 最新版本号
         id: upstream
         run: |
@@ -85,7 +77,6 @@ jobs:
           echo "latest_version=$VERSION" >> "$GITHUB_OUTPUT"
         shell: bash
 
-      # 读取上次构建记录的版本号（存储在 .last_version 文件中）
       - name: 读取历史版本
         id: current
         run: |
@@ -95,7 +86,6 @@ jobs:
             echo "current_version=none" >> "$GITHUB_OUTPUT"
           fi
 
-      # 判断是否需要构建（版本号不同或强制构建时触发）
       - name: 判断是否需要构建
         id: decide
         run: |
@@ -114,53 +104,34 @@ jobs:
     if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # 允许提交 .last_version 文件变更
-      packages: write    # 允许推送镜像到 GHCR
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
-        # 拉取仓库代码，确保构建时能访问 Dockerfile 和 supervisord.conf
-
-      # 设置 QEMU，支持多架构构建（可选，若仅构建当前架构可注释掉）
       - uses: docker/setup-qemu-action@v3
-
-      # 初始化 Docker Buildx，用于构建镜像
       - uses: docker/setup-buildx-action@v3
-
-      # 登录到 GHCR（默认使用 GitHub Token）
       - name: 登录到 GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-        # 注意：若需推送到 Docker Hub，请取消下方注释并配置 secrets
-        # with:
-        #   username: ${{ secrets.DOCKERHUB_USER }}
-        #   password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # 构建并推送镜像，动态加载 Dockerfile 和 supervisord.conf
       - name: 构建并推送镜像
         uses: docker/build-push-action@v5
         with:
-          context: next-docker/.examples/dockerfiles/full/fpm        # 构建上下文目录
-          file: ${{ env.DOCKERFILE_PATH }}                          # 指定 Dockerfile 路径
-          push: true                                                # 推送镜像到镜像仓库
+          context: next-docker/.examples/dockerfiles/full/fpm  # 根据实际情况调整
+          file: ${{ env.DOCKERFILE_PATH }}
+          push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ needs.check.outputs.latest_version }}
-            ${{ env.IMAGE_NAME }}:latest                            # 同时打上 latest 标签
+            ${{ env.IMAGE_NAME }}:latest
           build-args: |
-            NEXTCLOUD_VERSION=${{ needs.check.outputs.latest_version }}  # 传递版本号给构建过程
-
-      # 更新版本记录文件，用于下次比较
+            NEXTCLOUD_VERSION=${{ needs.check.outputs.latest_version }}
       - name: 更新版本记录
         run: echo "${{ needs.check.outputs.latest_version }}" > .last_version
-
-      # 自动提交版本变更到仓库
       - name: 提交版本变更
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: build Nextcloud ${{ needs.check.outputs.latest_version }}"
-
-      # 输出构建结果
       - name: 输出构建结果
         run: echo "✅ 已成功构建并推送 Nextcloud Full-FPM v${{ needs.check.outputs.latest_version }}"
