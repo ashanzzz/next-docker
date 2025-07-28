@@ -1,0 +1,92 @@
+name: Nextcloud Full FPM Alpine Build
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # 每周日 00:00 UTC 触发
+  workflow_dispatch:
+    inputs:
+      force_build:
+        type: boolean
+        description: 'Force rebuild even if the current version is up-to-date'
+        required: false
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write    # 允许提交更改到仓库（更新版本文件）
+      packages: write    # 允许推送容器镜像到GHCR
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Gather build info
+        id: info
+        run: |
+          echo "Current directory: $PWD"
+          echo "Dockerfile path: $PWD/.examples/dockerfiles/full/fpm-alpine/Dockerfile"
+          if [ -f .examples/dockerfiles/full/fpm-alpine/supervisord.conf ]; then
+            echo "supervisord.conf exists."
+          else
+            echo "supervisord.conf not found!"
+          fi
+          if [ -f .last_version_fpm_alpine ]; then
+            CURRENT_VERSION=$(cat .last_version_fpm_alpine)
+          else
+            CURRENT_VERSION="none"
+          fi
+          echo "Current recorded version: $CURRENT_VERSION"
+          LATEST_JSON=$(curl -s https://api.github.com/repos/nextcloud/server/releases/latest)
+          LATEST_VERSION=$(echo "$LATEST_JSON" | grep -Po '"tag_name": "\K.*?(?=")')
+          LATEST_VERSION=${LATEST_VERSION#v}
+          echo "Latest upstream version: $LATEST_VERSION"
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Determine if build is needed
+        id: decide
+        run: |
+          current="${{ steps.info.outputs.current }}"
+          latest="${{ steps.info.outputs.latest }}"
+          force="${{ inputs.force_build }}"
+          if [ "$force" = "true" ]; then
+            echo "Force build input is true. A rebuild will be forced."
+          fi
+          if [ "$current" = "$latest" ] && [ "$force" != "true" ]; then
+            echo "Image is up-to-date (version $current). Skipping build."
+            echo "build_needed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Image needs to be built (current: $current, latest: $latest, force_build: $force)."
+            echo "build_needed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ steps.decide.outputs.build_needed == 'true' }}
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        if: ${{ steps.decide.outputs.build_needed == 'true' }}
+        uses: docker/build-push-action@v4
+        with:
+          context: .examples/dockerfiles/full/fpm-alpine
+          file: .examples/dockerfiles/full/fpm-alpine/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/nextcloud-full-fpm-alpine:latest
+            ghcr.io/${{ github.repository_owner }}/nextcloud-full-fpm-alpine:${{ steps.info.outputs.latest }}
+
+      - name: Update version record
+        if: ${{ steps.decide.outputs.build_needed == 'true' }}
+        run: echo "${{ steps.info.outputs.latest }}" > .last_version_fpm_alpine
+
+      - name: Commit updated version file
+        if: ${{ steps.decide.outputs.build_needed == 'true' }}
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "Update .last_version_fpm_alpine to ${{ steps.info.outputs.latest }}"
+          file_pattern: .last_version_fpm_alpine
