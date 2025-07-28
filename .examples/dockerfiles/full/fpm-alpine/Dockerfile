@@ -24,7 +24,19 @@ RUN set -ex; \
 ########################
 # 2. 安装运行时依赖
 ########################
+# 指定要安装的 glibc 版本
+ENV GLIBC_VER=2.36-r2
 RUN set -ex; \
+    # 1. 安装必要工具 & 导入 sgerrand 公钥
+    apk add --no-cache --virtual .build-deps \
+      ca-certificates wget && \
+    wget -q -O /etc/apk/keys/sgerrand.rsa.pub \
+      https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub && \
+    \
+    # 2. 下载并安装 glibc 包
+    wget -q \
+      https://github.com/sgerrand/alpine-pkg-glibc/releases/download/${GLIBC_VER}/glibc-${GLIBC_VER}.apk && \
+    apk add --no-cache glibc-${GLIBC_VER}.apk && \
     \
     apk add --no-cache \
         ffmpeg \
