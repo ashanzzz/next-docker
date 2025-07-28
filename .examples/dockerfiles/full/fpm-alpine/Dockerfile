@@ -1,5 +1,7 @@
 FROM nextcloud:fpm-alpine
-# 切回 root，调整 www-data 用户为 99:100
+########################
+# 1. 切回 root，用来重建 www-data（99:100）
+########################
 USER root
 # Alpine BusyBox 自带 adduser/deluser，重建 www-data
 RUN set -ex; \
@@ -10,6 +12,9 @@ RUN set -ex; \
     # 把 Nextcloud 程序目录和 PHP 配置目录都给改一下属主
     chown -R www-data:www-data /var/www/html /usr/local/etc/php
 
+########################
+# 2. 安装运行时依赖
+########################
 RUN set -ex; \
     \
     apk add --no-cache \
@@ -20,7 +25,9 @@ RUN set -ex; \
         supervisor \
 #       libreoffice \
     ;
-
+########################
+# 3. 编译扩展、安装 SMB 等
+########################
 RUN set -ex; \
     \
     apk add --no-cache --virtual .build-deps \
@@ -49,14 +56,25 @@ RUN set -ex; \
     apk add --virtual .nextcloud-phpext-rundeps $runDeps; \
     apk del .build-deps
 
-# Supervisord 目录、锁文件也要 www-data 拥有
+########################
+# 4. Supervisord 目录也要给权限
+########################
 RUN set -ex; \
     mkdir -p /var/log/supervisord /var/run/supervisord; \
     chown -R www-data:www-data /var/log/supervisord /var/run/supervisord
 
-
+########################
+# 5. 复制你的 supervisord.conf，并且在其中加上 user=www-data
+########################
 COPY supervisord.conf /
+# 在 supervisord.conf 的 [program:cron] 段落内加上一行：
+#   user=www-data
+
+########################
+# 6. 切回 www-data:99:100，后续 entrypoint + supervisord 都以这个用户运行
+########################
+USER www-data:www-data
 
 ENV NEXTCLOUD_UPDATE=1
 
-CMD ["/usr/bin/supervisord", "-c", "/supervisord.conf"]
+CMD [ "/usr/bin/supervisord", "-c", "/supervisord.conf" ]
