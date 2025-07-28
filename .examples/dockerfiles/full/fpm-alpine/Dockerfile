@@ -32,8 +32,7 @@ RUN set -ex; \
         procps \
         samba-client \
         supervisor \
-        gcompat \
-        libstdc++ \
+        libc6-compat libstdc++ \       # ← 新增：glibc 兼容动态链接器和 C++ 运行时
 #       libreoffice \
     ;
 ########################
