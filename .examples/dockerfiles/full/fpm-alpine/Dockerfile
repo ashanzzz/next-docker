@@ -32,6 +32,8 @@ RUN set -ex; \
         procps \
         samba-client \
         supervisor \
+        gcompat \
+        libstdc++ \
 #       libreoffice \
     ;
 ########################
