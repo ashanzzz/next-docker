@@ -5,11 +5,21 @@ FROM nextcloud:fpm-alpine
 USER root
 
 RUN set -ex; \
-    sed -i 's/^www-data:x:[0-9]*:/www-data:x:100:/' /etc/group; \
-    sed -i 's/^www-data:x:[0-9]*:[0-9]*:/www-data:x:99:100:/' /etc/passwd; \
-    # 确保家目录存在并且属主正确
-    mkdir -p /var/www/html; \
-    chown -R www-data:www-data /var/www/html /usr/local/etc/php /var/log/supervisord /var/run/supervisord
+    # 把 www-data 的 GID 改为 100
+    sed -i 's/^www-data:x:[0-9]\+:/www-data:x:100:/' /etc/group; \
+    # 把 www-data 的 UID 改为 99，GID 改为 100
+    sed -i 's/^www-data:x:[0-9]\+:[0-9]\+:/www-data:x:99:100:/' /etc/passwd; \
+    # 确保这些目录存在
+    mkdir -p /var/www/html \
+             /usr/local/etc/php \
+             /var/log/supervisord \
+             /var/run/supervisord; \
+    # 修改属主
+    chown -R www-data:www-data \
+          /var/www/html \
+          /usr/local/etc/php \
+          /var/log/supervisord \
+          /var/run/supervisord
 
 ########################
 # 2. 安装运行时依赖
