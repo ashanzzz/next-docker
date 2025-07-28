@@ -25,7 +25,8 @@ RUN set -ex; \
 # 2. 安装运行时依赖
 ########################
 # 指定要安装的 glibc 版本
-ENV GLIBC_VER=2.36-r2
+ARG GLIBC_VER=2.36-r2
+ENV GLIBC_VER=${GLIBC_VER}
 RUN set -ex; \
     # 1. 安装必要工具 & 导入 sgerrand 公钥
     apk add --no-cache --virtual .build-deps \
@@ -44,8 +45,6 @@ RUN set -ex; \
         procps \
         samba-client \
         supervisor \
-        libc6-compat \
-        libstdc++ \
 #       libreoffice \
     ;
 ########################
