@@ -3,14 +3,13 @@ FROM nextcloud:fpm-alpine
 # 1. 切回 root，用来重建 www-data（99:100）
 ########################
 USER root
-# Alpine BusyBox 自带 adduser/deluser，重建 www-data
+
 RUN set -ex; \
-    deluser www-data; \
-    delgroup www-data; \
-    addgroup -g 100 www-data; \
-    adduser -u 99 -G www-data -h /var/www/html -D -S -s /bin/sh www-data; \
-    # 把 Nextcloud 程序目录和 PHP 配置目录都给改一下属主
-    chown -R www-data:www-data /var/www/html /usr/local/etc/php
+    sed -i 's/^www-data:x:[0-9]*:/www-data:x:100:/' /etc/group; \
+    sed -i 's/^www-data:x:[0-9]*:[0-9]*:/www-data:x:99:100:/' /etc/passwd; \
+    # 确保家目录存在并且属主正确
+    mkdir -p /var/www/html; \
+    chown -R www-data:www-data /var/www/html /usr/local/etc/php /var/log/supervisord /var/run/supervisord
 
 ########################
 # 2. 安装运行时依赖
